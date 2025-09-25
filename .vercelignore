@@ -1,0 +1,10 @@
+node_modules
+Contents
+.env.local
+.env
+.DS_Store
+*.log
+.next
+.git
+package-lock.json
+yarn.lock
