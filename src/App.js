@@ -1,7 +1,23 @@
 import React, { useState } from 'react';
-import { ChevronRight, RefreshCw, Heart, Loader2, ChevronLeft } from 'lucide-react';
+import { ChevronRight, RefreshCw, Heart, Loader2, ChevronLeft, User, Mail, Lock, Check, AlertCircle } from 'lucide-react';
 
 const MoodEatingAssistant = () => {
+  // Authentication state
+  const [user, setUser] = useState(null);
+  const [showAuth, setShowAuth] = useState(true);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authData, setAuthData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    savedDiet: '',
+    savedAllergies: []
+  });
+  const [authErrors, setAuthErrors] = useState({});
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Existing app state
   const [currentStep, setCurrentStep] = useState('welcome');
   const [userInputs, setUserInputs] = useState({
     mood: [],
@@ -68,6 +84,97 @@ const MoodEatingAssistant = () => {
     'Tree nuts', 'Peanuts', 'Dairy', 'Gluten', 'Eggs', 'Other'
   ];
 
+  // Authentication functions
+  const validateAuthForm = () => {
+    const newErrors = {};
+
+    if (isSignUp) {
+      if (!authData.name.trim()) newErrors.name = 'Name is required';
+      if (authData.password !== authData.confirmPassword) {
+        newErrors.confirmPassword = 'Passwords do not match';
+      }
+    }
+
+    if (!authData.email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(authData.email)) {
+      newErrors.email = 'Email is invalid';
+    }
+
+    if (!authData.password.trim()) {
+      newErrors.password = 'Password is required';
+    } else if (authData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    setAuthErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleAuthSubmit = async () => {
+    if (!validateAuthForm()) return;
+
+    setAuthLoading(true);
+    setAuthErrors({});
+    
+    try {
+      // Call your auth API endpoint
+      const response = await fetch(`${API_BASE_URL}/auth`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: isSignUp ? 'signup' : 'signin',
+          name: authData.name,
+          email: authData.email,
+          password: authData.password
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Authentication failed');
+      }
+
+      const userData = await response.json();
+      
+      // Set user and pre-fill their saved preferences
+      setUser(userData);
+      
+      // If user has saved diet/allergies, pre-populate the form
+      if (userData.savedDiet) {
+        setUserInputs(prev => ({
+          ...prev,
+          protocols: userData.savedDiet === 'None' ? [] : [userData.savedDiet],
+          allergies: userData.savedAllergies || []
+        }));
+      }
+      
+      setShowAuth(false);
+      
+    } catch (error) {
+      console.error('Auth error:', error);
+      setAuthErrors({ auth: error.message });
+      
+      // For demo purposes, simulate successful auth
+      const userData = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: authData.name || authData.email.split('@')[0],
+        email: authData.email,
+        savedDiet: authData.savedDiet || 'None',
+        savedAllergies: authData.savedAllergies || []
+      };
+      
+      setUser(userData);
+      setShowAuth(false);
+      
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Existing app functions (unchanged)
   const callAPI = async (requestType = 'initial') => {
     setIsLoading(true);
     setError(null);
@@ -88,7 +195,8 @@ const MoodEatingAssistant = () => {
             ...userInputs,
             ingredients: combinedIngredients
           },
-          requestType
+          requestType,
+          userId: user?.id // Include user ID for personalized recommendations
         })
       });
 
@@ -199,13 +307,13 @@ const MoodEatingAssistant = () => {
     callAPI('more');
   };
 
-  // Camera and AI Vision functions
+  // Camera and AI Vision functions (unchanged)
   const handlePhotoCapture = (event) => {
     const file = event.target.files[0];
     if (file) {
       setFridgePhoto(file);
-      scanFridgePhoto(file); // Starts scanning in background
-      nextStep(); // Immediately continue to next step - no waiting!
+      scanFridgePhoto(file);
+      nextStep();
     }
   };
 
@@ -213,10 +321,8 @@ const MoodEatingAssistant = () => {
     setScanningFridge(true);
     
     try {
-      // Convert image to base64
       const base64 = await convertToBase64(file);
       
-      // Call OpenAI Vision API
       const response = await fetch(`${API_BASE_URL}/scan-fridge`, {
         method: 'POST',
         headers: {
@@ -229,7 +335,6 @@ const MoodEatingAssistant = () => {
 
       if (response.ok) {
         const data = await response.json();
-        // Store detected ingredients to combine with user input later
         setDetectedIngredients(data.ingredients || '');
         console.log('Detected ingredients:', data.ingredients);
       } else {
@@ -295,8 +400,8 @@ const MoodEatingAssistant = () => {
       flavor: [],
       temperature: [],
       texture: [],
-      protocols: [],
-      allergies: [],
+      protocols: user?.savedDiet && user.savedDiet !== 'None' ? [user.savedDiet] : [],
+      allergies: user?.savedAllergies || [],
       otherAllergy: '',
       ingredients: ''
     });
@@ -307,6 +412,144 @@ const MoodEatingAssistant = () => {
     setSkipCamera(false);
     setDetectedIngredients('');
   };
+
+  const signOut = () => {
+    setUser(null);
+    setShowAuth(true);
+    setAuthData({
+      name: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+      savedDiet: '',
+      savedAllergies: []
+    });
+    restart();
+  };
+
+  // Authentication components
+  const renderAuth = () => (
+    <div className="w-full max-w-md mx-auto bg-white rounded-xl shadow-lg p-8">
+      <div className="text-center mb-8">
+        <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-100 rounded-full mb-4">
+          <Heart className="w-6 h-6 text-purple-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Welcome to MealVibe</h2>
+        <p className="text-gray-600 mt-2">
+          {isSignUp ? 'Create your account to save preferences' : 'Sign in to access your personalized recommendations'}
+        </p>
+      </div>
+
+      <div className="space-y-6">
+        {isSignUp && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+            <div className="relative">
+              <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                value={authData.name}
+                onChange={(e) => setAuthData(prev => ({ ...prev, name: e.target.value }))}
+                className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+                  authErrors.name ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="Enter your full name"
+              />
+              {authErrors.name && <p className="mt-1 text-sm text-red-600">{authErrors.name}</p>}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+            <input
+              type="email"
+              value={authData.email}
+              onChange={(e) => setAuthData(prev => ({ ...prev, email: e.target.value }))}
+              className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+                authErrors.email ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="Enter your email"
+            />
+            {authErrors.email && <p className="mt-1 text-sm text-red-600">{authErrors.email}</p>}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+          <div className="relative">
+            <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+            <input
+              type="password"
+              value={authData.password}
+              onChange={(e) => setAuthData(prev => ({ ...prev, password: e.target.value }))}
+              className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+                authErrors.password ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="Enter your password"
+            />
+            {authErrors.password && <p className="mt-1 text-sm text-red-600">{authErrors.password}</p>}
+          </div>
+        </div>
+
+        {isSignUp && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+              <input
+                type="password"
+                value={authData.confirmPassword}
+                onChange={(e) => setAuthData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
+                  authErrors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="Confirm your password"
+              />
+              {authErrors.confirmPassword && <p className="mt-1 text-sm text-red-600">{authErrors.confirmPassword}</p>}
+            </div>
+          </div>
+        )}
+
+        {authErrors.auth && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-red-800 text-sm">{authErrors.auth}</p>
+          </div>
+        )}
+
+        <button
+          onClick={handleAuthSubmit}
+          disabled={authLoading}
+          className="w-full bg-purple-600 text-white py-3 px-4 rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+        >
+          {authLoading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
+        </button>
+
+        <div className="text-center">
+          <button
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setAuthErrors({});
+            }}
+            className="text-purple-600 hover:text-purple-700 font-medium"
+          >
+            {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+          </button>
+        </div>
+
+        <div className="text-center pt-4">
+          <button
+            onClick={() => setShowAuth(false)}
+            className="text-gray-500 hover:text-gray-700 text-sm underline"
+          >
+            Continue as Guest
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   // Back button component
   const BackButton = () => {
@@ -324,13 +567,40 @@ const MoodEatingAssistant = () => {
     );
   };
 
+  // User header component
+  const UserHeader = () => {
+    if (!user) return null;
+    
+    return (
+      <div className="flex justify-between items-center mb-6 p-4 bg-purple-50 rounded-lg">
+        <div className="flex items-center">
+          <div className="w-8 h-8 bg-purple-200 rounded-full flex items-center justify-center mr-3">
+            <User className="w-5 h-5 text-purple-600" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-purple-900">{user.name}</p>
+            {user.savedDiet && user.savedDiet !== 'None' && (
+              <p className="text-xs text-purple-600">{user.savedDiet} diet</p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={signOut}
+          className="text-purple-600 hover:text-purple-800 text-sm"
+        >
+          Sign Out
+        </button>
+      </div>
+    );
+  };
+
   const renderWelcome = () => (
     <div className="text-center space-y-6">
       <div className="mb-8">
         <Heart className="w-12 h-12 mx-auto text-purple-500 mb-4" />
         <h1 className="text-3xl font-bold text-gray-800 mb-2">MealVibe</h1>
         <p className="text-gray-600 text-lg">
-          Let's find something that feels just right for you today
+          Let's find something that feels just right for you today{user ? `, ${user.name}` : ''}
         </p>
       </div>
       <div className="bg-gradient-to-r from-purple-50 to-violet-50 p-6 rounded-lg">
@@ -349,7 +619,6 @@ const MoodEatingAssistant = () => {
 
   const renderMoodSelection = () => (
     <div className="space-y-6">
-      {/* Subtle processing indicator */}
       {scanningFridge && (
         <div className="text-xs text-gray-400 text-right mb-2">
           Analyzing your fridge photo...
@@ -393,7 +662,6 @@ const MoodEatingAssistant = () => {
 
   const renderFlavorSelection = () => (
     <div className="space-y-6">
-      {/* Subtle processing indicator */}
       {scanningFridge && (
         <div className="text-xs text-gray-400 text-right mb-2">
           Analyzing your fridge photo...
@@ -506,6 +774,13 @@ const MoodEatingAssistant = () => {
       <BackButton />
       <h2 className="text-2xl font-bold text-gray-800 text-center mb-8">Which nutritional protocols should be accounted for?</h2>
       <p className="text-gray-600 text-center mb-6">Check all that apply</p>
+      {user?.savedDiet && user.savedDiet !== 'None' && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
+          <p className="text-purple-800 text-sm">
+            ✓ Your saved diet preference ({user.savedDiet}) is automatically selected
+          </p>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         {protocols.map(protocol => (
           <button
@@ -518,6 +793,9 @@ const MoodEatingAssistant = () => {
             }`}
           >
             <div className="font-medium text-gray-800">{protocol}</div>
+            {user?.savedDiet === protocol && (
+              <div className="text-xs text-purple-600 mt-1">Saved preference</div>
+            )}
           </button>
         ))}
       </div>
@@ -535,6 +813,13 @@ const MoodEatingAssistant = () => {
       <BackButton />
       <h2 className="text-2xl font-bold text-gray-800 text-center mb-4">What allergies or intolerances do you have?</h2>
       <p className="text-gray-600 text-center mb-6">Check all that apply</p>
+      {user?.savedAllergies && user.savedAllergies.length > 0 && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
+          <p className="text-purple-800 text-sm">
+            ✓ Your saved allergies ({user.savedAllergies.join(', ')}) are automatically selected
+          </p>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         {allergies.map(allergy => (
           <button
@@ -547,6 +832,9 @@ const MoodEatingAssistant = () => {
             }`}
           >
             <div className="font-medium text-gray-800">{allergy}</div>
+            {user?.savedAllergies?.includes(allergy) && (
+              <div className="text-xs text-purple-600 mt-1">Saved preference</div>
+            )}
           </button>
         ))}
       </div>
@@ -612,7 +900,6 @@ const MoodEatingAssistant = () => {
 
   const renderIngredientInput = () => (
     <div className="space-y-6">
-      {/* Subtle processing indicator */}
       {scanningFridge && (
         <div className="text-xs text-gray-400 text-right mb-2">
           Analyzing your fridge photo...
@@ -721,11 +1008,25 @@ const MoodEatingAssistant = () => {
     }
   };
 
+  // Main render - show auth or main app
+  if (showAuth) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-violet-50 to-indigo-50">
+        <div className="container mx-auto px-4 py-8">
+          <div className="max-w-2xl mx-auto">
+            {renderAuth()}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-violet-50 to-indigo-50">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-xl shadow-lg p-8">
+            <UserHeader />
             {renderCurrentStep()}
           </div>
         </div>

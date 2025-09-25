@@ -1,3 +1,12 @@
+import fs from 'fs';
+import path from 'path';
+
+// Function to read prompt from file
+const readPromptFile = (filename) => {
+  const promptPath = path.join(process.cwd(), 'prompts', filename);
+  return fs.readFileSync(promptPath, 'utf8');
+};
+
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -108,43 +117,19 @@ export default async function handler(req, res) {
       proteinInstruction = 'CRITICAL: Each recommendation MUST include animal protein (like chicken, beef, fish, eggs, or turkey).';
     }
 
-    // Create the OpenAI prompt
-    const prompt = `You are a compassionate, creative, mood-aware clean eating assistant. Generate 3 personalized meal/snack recommendations based on these user inputs:
+    // Read the prompt template from file
+    let promptTemplate = readPromptFile('meal-recommendation-prompt.txt');
 
-MOOD: ${userInputs.mood?.join(', ') || 'not specified'}
-FLAVOR PREFERENCES: ${userInputs.flavor?.join(', ') || 'not specified'}
-TEMPERATURE: ${userInputs.temperature?.join(', ') || 'not specified'}
-TEXTURE CRAVINGS: ${userInputs.texture?.join(', ') || 'not specified'}
-DIETARY PROTOCOLS: ${userInputs.protocols?.join(', ') || 'none specified'}
-ALLERGIES/INTOLERANCES: ${allAllergies.join(', ') || 'none specified'}
-AVAILABLE INGREDIENTS: ${userInputs.ingredients || 'none specified'}
-
-${proteinInstruction}
-
-Create recommendations that honor their mood and cravings. Each should be easy to prepare with 10 or fewer simple ingredients.
-
-YOUR ENTIRE RESPONSE MUST BE A SINGLE, VALID JSON OBJECT:
-
-{
-  "message": "A warm, validating message that acknowledges their mood and cravings (1-2 sentences)",
-  "suggestions": [
-    {
-      "title": "3-5 word catchy title",
-      "prep": "Simple preparation instructions in 3-5 sentences",
-      "vibe": "Three descriptive words separated by ' • '"
-    },
-    {
-      "title": "3-5 word catchy title",
-      "prep": "Simple preparation instructions in 3-5 sentences", 
-      "vibe": "Three descriptive words separated by ' • '"
-    },
-    {
-      "title": "3-5 word catchy title",
-      "prep": "Simple preparation instructions in 3-5 sentences",
-      "vibe": "Three descriptive words separated by ' • '"
-    }
-  ]
-}`;
+    // Replace all placeholders in the prompt
+    const finalPrompt = promptTemplate
+      .replace('{MOOD}', userInputs.mood?.join(', ') || 'not specified')
+      .replace('{FLAVOR}', userInputs.flavor?.join(', ') || 'not specified')
+      .replace('{TEMPERATURE}', userInputs.temperature?.join(', ') || 'not specified')
+      .replace('{TEXTURE}', userInputs.texture?.join(', ') || 'not specified')
+      .replace('{PROTOCOLS}', userInputs.protocols?.join(', ') || 'none specified')
+      .replace('{ALLERGIES}', allAllergies.join(', ') || 'none specified')
+      .replace('{INGREDIENTS}', userInputs.ingredients || 'none specified')
+      .replace('{PROTEIN_INSTRUCTION}', proteinInstruction);
 
     // Try OpenAI API call
     try {
@@ -156,7 +141,7 @@ YOUR ENTIRE RESPONSE MUST BE A SINGLE, VALID JSON OBJECT:
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: finalPrompt }],
           max_tokens: 1000,
           temperature: 0.7
         })
